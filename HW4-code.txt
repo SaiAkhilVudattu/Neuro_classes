@@ -1,0 +1,1019 @@
+activations <- list()
+
+
+## Define the forward_pass function
+
+
+forward_pass <- function(num_layers, weights, biases, x_pat, trans_func) {
+    
+    for (i in 1:num_layers) {
+        
+        if (i == 1) {
+            
+            activations[[i]] <- apply(x_pat, 2, function(z) {
+                
+                trans_func(weights[[i]] %*% z + biases[[i]])
+                
+            })
+            
+            # activations[[i]] <- trans_func(weights[[i]] %*% x_pat + biases[[i]])
+            
+        } else {
+            
+            activations[[i]] <- apply(activations[[i - 1]], 2, function(z) {
+                
+                trans_func(weights[[i]] %*% z + biases[[i]])
+                
+            })
+            
+            # activations[[i]] <- trans_func(weights[[i]] %*% activations[[i - 1]] + biases[[i]])
+            
+        }
+        
+    }
+    
+    return(activations)
+    
+}
+
+
+## Define the back_pass function
+
+
+back_pass <- function(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func) {
+    
+    # Create containers for the gradients
+    
+    gradient_biases <- list()
+    gradient_weights <- list()
+    
+    ## Get the activations from a forward pass
+    
+    activations <- forward_pass(num_layers, weights, biases, x_pat, trans_func)
+    
+    ## Get the error of the last layer
+    
+    delta <- (activations[[num_layers]] - y_pat) * der_trans_func(activations[[num_layers]])
+    
+    ## Set the gradients of the last layer
+    
+    gradient_biases[[num_layers]] <- delta
+    gradient_weights[[num_layers]] <- delta %*% t(activations[[num_layers - 1]])
+    
+    ## Calculate the gradients of all other layers
+    
+    for (i in seq(from = num_layers - 1, to = 1, by = -1)) {
+        
+        delta <- (t(weights[[i + 1]]) %*% delta) * der_trans_func(activations[[i]])
+        
+        gradient_biases[[i]] <- delta
+        
+        if (i != 1) {
+            
+            gradient_weights[[i]] <- delta %*% t(activations[[i - 1]])
+            
+        } else {
+            
+            gradient_weights[[i]] <- delta %*% t(x_pat)
+            
+        }
+        
+    }
+    
+    ## Save the gradients to the global environment
+    
+    # gradient_weights <<- gradient_weights
+    # gradient_biases <<- gradient_biases
+    
+    return(list(gradient_weights, gradient_biases))
+    
+}
+
+
+## Define the root mean square error function
+
+
+rms_error <- function(D, y) {
+    
+    rms <- sqrt(sum((D - y)^2))
+    return(rms)
+    
+}
+
+
+rms_error_batch <- function(D, y) {
+    
+    rms <- sqrt(sum((D - y)^2)/length(y))
+    return(rms)
+    
+}
+
+
+## Load in necessary packages
+
+
+library(ggplot2)
+
+
+## Load in necessary functions here.
+
+
+## Define the hyperbolic tangent function
+
+
+trans_func <- function(x) {
+    
+    ((exp(1)^x) - (exp(1)^-x))/((exp(1)^x) + (exp(1)^-x))
+    
+}
+
+
+## Define the derivative of the hyperbolic tangent function
+
+
+der_trans_func <- function(x) {
+    
+    (1 - (trans_func(x)^2))
+    
+}
+
+
+## Create a container for the errors and learning steps
+
+
+errors <- numeric()
+ler_step <- numeric()
+input_vecs <- list()
+expected_outputs <- numeric()
+actual_outputs <- numeric()
+
+
+
+
+## Initialize the network
+
+
+num_layers <- 2
+num_outputs <- c(2, 3, 1)
+
+
+weights <- list()
+biases <- list()
+
+
+for (i in 1:num_layers) {
+    
+    weights[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1]), nrow = num_outputs[i + 1], ncol = num_outputs[i])
+    biases[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1]), nrow = num_outputs[i + 1], ncol = 1)
+    
+}
+
+
+## Initialize the training parameters
+
+
+n <- 6250
+ler_rate <- 0.05
+
+
+## Import the training data
+
+
+x <- matrix(c(1,1,0,0,1,0,1,0), nrow = 2, ncol = 4, byrow = T)
+y <- matrix(c(0,1,1,0), nrow = 1, ncol = 4)
+bias <- matrix(rep(1, 4), nrow = 1, ncol = 4)
+
+
+## Iteratively learn the weights
+
+
+for (i in 1:n) {
+    
+    ## Randomly permute the indices
+    
+    inds <- sample(1:dim(x)[2])
+    
+    ## Perform the permutation
+    
+    x <- x[, inds]
+    y <- matrix(y[, inds], nrow = 1, ncol = dim(y)[2])
+    
+    ## Perform the back propagation for each pattern
+    
+    for (j in 1:dim(x)[2]) {
+        
+        ## Select the jth input pattern
+        
+        x_pat <- matrix(x[, j], nrow = dim(x)[1], ncol = 1)
+        y_pat <- matrix(y[, j], nrow = dim(y)[1], ncol = 1)
+        
+        ## Perform the back propagation for pattern j
+        
+        gradient_weights <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+        gradient_biases <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+        
+        for (k in 1:num_layers) {
+            
+            weights[[k]] <- weights[[k]] - ler_rate * gradient_weights[[k]]
+            biases[[k]] <- biases[[k]] - ler_rate * gradient_biases[[k]]
+            
+        }
+        
+    }
+    
+    ## Record the error values for each training step
+    
+    if ((i * dim(x)[2]) %% 100 == 0) {
+        
+        err <- rms_error(D = t(y),
+                         y = forward_pass(num_layers, weights, biases, x, trans_func)[[num_layers]])
+        
+        errors[length(errors) + 1] <- err
+        ler_step[length(ler_step) + 1] <- i * dim(x)[2]
+        input_vecs[[length(input_vecs) + 1]] <- x_pat
+        expected_outputs[length(expected_outputs) + 1] <- y_pat
+        actual_outputs[length(actual_outputs) + 1] <- forward_pass(num_layers, weights, biases, x, trans_func)[[num_layers]][dim(x)[2]]
+        
+    }
+    
+}
+
+
+## Plot the RMSE over time
+
+
+ggplot() +
+    geom_line(aes(x = ler_step, y = errors)) +
+    labs(x = "Learning Step", y = "RMS Error", title = "RMS Error per Learning Step")
+
+
+## Plot the training desired vs. actual outputs
+
+
+ggplot() +
+    geom_line(aes(x = ler_step, y = expected_outputs - actual_outputs)) +
+    labs(x = "Learning Step", y = "Difference, Desired vs. Actual", title = "Desired vs. Actual Output per Learning Step")
+
+
+## Load in necessary packages
+
+
+library(ggplot2)
+
+
+## Load in necessary functions here.
+
+
+## Define the hyperbolic tangent function
+
+
+trans_func <- function(x) {
+    
+    ((exp(1)^x) - (exp(1)^-x))/((exp(1)^x) + (exp(1)^-x))
+    
+}
+
+
+## Define the derivative of the hyperbolic tangent function
+
+
+der_trans_func <- function(x) {
+    
+    (1 - (trans_func(x)^2))
+    
+}
+
+
+## Create a container for the errors and learning steps
+
+
+errors_train <- numeric()
+errors_test <- numeric()
+ler_step <- numeric()
+input_vecs <- list()
+output_diffs_train <- numeric()
+output_diffs_test <- numeric()
+
+
+
+
+
+
+## Initialize the network
+
+
+num_layers <- 2
+num_outputs <- c(1, 10, 1)
+
+
+weights <- list()
+biases <- list()
+
+
+for (i in 1:num_layers) {
+    
+    weights[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                 min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = num_outputs[i])
+    biases[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = 1)
+    
+}
+
+
+## Import the training data
+
+
+x <- runif(n = 200, min = 0.1, max = 1)
+y <- (1/x)/10
+bias <- 1
+
+
+## Import the testing data
+
+
+x_test <- seq(from = 0.109, t = 1, by = 0.009)
+y_test <- (1/x_test)/10
+
+
+## Initialize the training parameters
+
+
+n <- 20000
+ler_rate <- 0.01
+
+
+## Set the epoch size
+
+
+K <- 20
+
+
+## Learn the weights via batch learning
+
+
+for (i in 1:n) {
+    
+    ## Randomly permute the indices
+    
+    inds <- sample(1:length(x))
+    
+    ## Perform the permutation
+    
+    x <- x[inds]
+    y <- y[inds]
+    
+    ## Create the gradient containers
+    
+    gradient_biases_sum <- list()
+    gradient_weights_sum <- list()
+    
+    for (j in 1:K) {
+        
+        x_pat <<- as.matrix(x[j])
+        y_pat <<- as.matrix(y[j])
+        
+        if (j == 1) {
+            
+            gradient_weights_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+            gradient_biases_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+            
+        } else {
+            
+            gradient_weights <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+            gradient_biases <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+            
+            for (k in 1:num_layers) {
+                
+                gradient_biases_sum[[k]] <- gradient_biases_sum[[k]] + gradient_biases[[k]]
+                gradient_weights_sum[[k]] <- gradient_weights_sum[[k]] + gradient_weights[[k]]
+                
+            }
+            
+        }
+        
+    }
+    
+    for (l in 1:num_layers) {
+        
+        weights[[l]] <- weights[[l]] - ler_rate * gradient_weights_sum[[l]]
+        biases[[l]] <- biases[[l]] - ler_rate * gradient_biases_sum[[l]]
+        
+    }
+    
+    ## Record the error values for each training step
+    
+    if (i %% 100 == 0) {
+        
+        if (exists("iter")) {
+            iter <- iter + 1
+        } else {
+            iter <- 1
+        }
+        
+        ler_step[length(ler_step) + 1] <- i
+        
+        
+        
+        err_train <- rms_error_batch(D = t(y),
+                                     y = forward_pass(num_layers, weights, biases, matrix(x, nrow = 1), trans_func)[[num_layers]])
+        errors_train[length(errors_train) + 1] <- err_train
+        
+        err_test <- rms_error_batch(D = t(y_test),
+                                    y = forward_pass(num_layers, weights, biases, matrix(x_test, nrow = 1), trans_func)[[num_layers]])
+        errors_test[length(errors_test) + 1] <- err_test
+        
+        
+        
+        y_expected_train <- y_pat
+        y_actual_train <- forward_pass(num_layers, weights, biases, x_pat, trans_func)[[num_layers]]
+        
+        rand_ind <- sample(x = 1:length(x_test), size = 1)
+        
+        y_expected_test <- y_test[rand_ind]
+        y_actual_test <- forward_pass(num_layers, weights, biases, matrix(x_test[rand_ind], nrow = 1), trans_func)[[num_layers]]
+        
+        output_diffs_train[length(output_diffs_train) + 1] <- y_expected_train - y_actual_train
+        output_diffs_test[length(output_diffs_test) + 1] <- y_expected_test - y_actual_test
+        
+    }
+    
+}
+
+
+y_output <- forward_pass(num_layers, weights, biases, matrix(x, nrow = 1), trans_func)[[num_layers]]
+
+
+## Plot the RMSE over time
+
+
+ggplot() +
+    geom_line(aes(x = ler_step, y = errors_test), color = "red") +
+    geom_line(aes(x = ler_step, y = errors_train), color = "blue") +
+    labs(x = "Learning Step", y = "RMS Error", title = "Learning History", subtitle = "Blue - Training, Red - Testing")
+
+
+## Plot the desired vs. actual outputs for test and training
+
+
+ggplot() +
+    geom_line(aes(x = ler_step, y = output_diffs_train), color = "blue") +
+    geom_line(aes(x = ler_step, y = output_diffs_test), color = "red") +
+    labs(x = "Learning Step", y = "Difference, Desired vs. Actual", title = "Desired vs. Actual Output per Learning Step", subtitle = "Blue - Training, Red - Testing")
+
+
+## Plot the actual function vs. the learned function
+
+
+ggplot() +
+    geom_line(aes(x = x_test, y = y_test), color = "blue") +
+    geom_line(aes(x = x, y = y_output), color = "red") +
+    labs(x = "X Value", y = "Scaled Y Value", title = "Desired vs. Actual Output", subtitle = "Blue - True Function, Red - Learned Function")
+
+
+## Load in necessary packages
+
+
+library(ggplot2)
+
+
+## Load in the necessary functions
+
+
+# bp_learn function is here.
+
+
+## Define the back propogation recall function
+
+
+bp_recall <- function() {
+    
+    ## Number of iterations
+    
+    num_iter <- 5000
+    
+    ## Learning rate for each layer
+    
+    ler_rate <- c(0.5, 0.000005)
+    
+    ## Batch size
+    
+    K <- 100
+    
+    ## Update the learning rate to match the batch size
+    
+    ler_rate <- ler_rate * (200 / K)
+    
+    ## Set the forget rate
+    
+    alpha <- c(0.04, 0.04)
+    
+    ## Define the hyperbolic tangent function
+    
+    trans_func <- function(x) {
+        
+        ((exp(1)^x) - (exp(1)^-x))/((exp(1)^x) + (exp(1)^-x))
+        
+    }
+    
+    ## Define the derivative of the hyperbolic tangent function
+    
+    der_trans_func <- function(x) {
+        
+        (1 - (trans_func(x)^2))
+        
+    }
+    
+    ## Define the function to learn
+    
+    f <- function(x) {
+        
+        1/x
+        
+    }
+    
+    ## Import the training data
+    
+    data_size <- 200
+    x <- runif(n = 200, min = 0.1, max = 1)
+    y <- f(x)/10
+    
+    ## Import the testing data
+    
+    x_test <- seq(from = 0.109, t = 1, by = 0.009)
+    y_test <- f(x_test)/10
+    
+    ## Set up the network architecture
+    
+    num_outputs <- c(1, 10, 1)
+    num_layers <- 2
+    
+    ## Train the network
+    
+    train_results <- bp_learn(num_iter, ler_rate, K, alpha, trans_func, der_trans_func, num_outputs, num_layers, x, y, 0.00000001, x_test, y_test)
+    
+    # Return the final network components
+    
+    weights <- train_results[[1]]
+    biases <- train_results[[2]]
+    ler_step <- train_results[[3]]
+    errors_train <- train_results[[4]]
+    errors_test <- train_results[[5]]
+    output_diffs_train <- train_results[[6]]
+    output_diffs_test <- train_results[[7]]
+    y_output <- train_results[[8]]
+    
+    ## Plot the RMSE over time
+    
+    ggplot() +
+        geom_line(aes(x = ler_step, y = errors_test), color = "red") +
+        geom_line(aes(x = ler_step, y = errors_train), color = "blue") +
+        labs(x = "Learning Step", y = "RMS Error", title = "Learning History", subtitle = "Blue - Training, Red - Testing")
+    
+    ## Plot the desired vs. actual outputs for test and training
+    
+    ggplot() +
+        geom_line(aes(x = ler_step, y = output_diffs_train), color = "blue") +
+        geom_line(aes(x = ler_step, y = output_diffs_test), color = "red") +
+        labs(x = "Learning Step", y = "Difference, Desired vs. Actual", title = "Desired vs. Actual Output per Learning Step", subtitle = "Blue - Training, Red - Testing")
+    
+    ## Plot the actual function vs. the learned function
+    
+    ggplot() +
+        geom_line(aes(x = x_test, y = y_test), color = "blue") +
+        geom_line(aes(x = x, y = y_output), color = "red") +
+        labs(x = "X Value", y = "Scaled Y Value", title = "Desired vs. Actual Output", subtitle = "Blue - True Function, Red - Learned Function")
+    
+}
+
+
+## Load in necessary packages
+
+
+library(ggplot2)
+
+
+## Load in the necessary functions
+
+# bp_iris function here.
+
+## Define the back propogation recall function
+
+
+bp_recall_iris <- function() {
+    
+    ## Number of iterations
+    
+    num_iter <- 1000
+    
+    ## Learning rate for each layer
+    
+    ler_rate <- c(0.05, 0.05)
+    
+    ## Batch size
+    
+    K <- 10
+    
+    ## Update the learning rate to match the batch size
+    
+    ler_rate <- ler_rate
+    
+    ## Set the forget rate
+    
+    alpha <- c(0.4, 0.4)
+    
+    ## Define the hyperbolic tangent function
+    
+    trans_func <- function(x) {
+        
+        ((exp(1)^x) - (exp(1)^-x))/((exp(1)^x) + (exp(1)^-x))
+        
+    }
+    
+    ## Define the derivative of the hyperbolic tangent function
+    
+    der_trans_func <- function(x) {
+        
+        (1 - (trans_func(x)^2))
+        
+    }
+    
+    ## Load in the iris training data
+    
+    train_data <- read.table("~/Documents/Rice_University/Spring_2018/NML502/HW04_Part2/iris-train.txt", skip = 8)
+    train_attr <- train_data[c(TRUE, FALSE), ]
+    train_cats <- train_data[c(FALSE, TRUE), ][ ,2:4]
+    
+    train_data_final <- cbind(train_attr, train_cats)
+    
+    x <- t(train_data_final[, 1:4])
+    y <- t(train_data_final[, 5:7])
+    
+    x <- matrix(as.numeric(unlist(x)), nrow = nrow(x))
+    y <- matrix(as.numeric(unlist(y)), nrow = nrow(y))
+    
+    ## Load in the iris test data
+    
+    test_data <- read.table("~/Documents/Rice_University/Spring_2018/NML502/HW04_Part2/iris-test.txt", skip = 8)
+    test_attr <- test_data[c(TRUE, FALSE), ]
+    test_cats <- test_data[c(FALSE, TRUE), ][ ,2:4]
+    
+    test_data_final <- cbind(test_attr, test_cats)
+    
+    x_test <- t(test_data_final[, 1:4])
+    y_test <- t(test_data_final[, 5:7])
+    
+    x_test <- matrix(as.numeric(unlist(x_test)), nrow = nrow(x_test))
+    y_test <- matrix(as.numeric(unlist(y_test)), nrow = nrow(y_test))
+    
+    
+    ## Set up the network architecture
+    
+    num_outputs <- c(4, 3, 3)
+    num_layers <- 2
+    
+    ## Train the network
+    
+    train_results <- bp_learn_iris(num_iter, ler_rate, K, alpha, trans_func, der_trans_func, num_outputs, num_layers, x, y, 0.03, x_test, y_test)
+    
+    # Return the final network components
+    
+    weights <- train_results[[1]]
+    biases <- train_results[[2]]
+    ler_step <- train_results[[3]]
+    errors_train <- train_results[[4]]
+    errors_test <- train_results[[5]]
+    
+    
+    
+    
+    ## Plot the RMSE over time
+    
+    ggplot() +
+        geom_line(aes(x = ler_step, y = errors_train), color = "blue") +
+        geom_line(aes(x = ler_step, y = errors_test), color = "red") +
+        labs(x = "Learning Step", y = "RMS Error", title = "Learning History", subtitle = "Blue - Training, Red - Testing")
+    
+}
+
+
+## Load in the necessary functions
+
+
+## Define the back propogation learning function
+
+
+bp_learn_iris <- function(num_iter, ler_rate, K, alpha, trans_func, der_trans_func, num_outputs, num_layers, x, y, tol, x_test, y_test) {
+    
+    ## Set the sixe of the inputs
+    
+    data_size <- dim(x)[2]
+    
+    ## Container for the errors and iteration number
+    
+    errors_train <- numeric()
+    errors_test <- numeric()
+    ler_step <- numeric()
+    
+    ## Containers for the weights and biases
+    
+    weights <- list()
+    biases <- list()
+    
+    ## Container for previous weight updates
+    
+    weights_prev_delta <- list()
+    biases_prev_delta <- list()
+    
+    ## Create the weights and biases and init the previous deltas
+    
+    for (i in 1:num_layers) {
+        
+        ## Create the weights
+        
+        weights[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                     min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = num_outputs[i])
+        biases[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                    min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = 1)
+        
+        ## Initialize the previous deltas
+        
+        weights_prev_delta[[i]] <- matrix(0, nrow = num_outputs[i + 1], ncol = num_outputs[i])
+        biases_prev_delta[[i]] <- matrix(0, nrow = num_outputs[i + 1], ncol = 1)
+        
+    }
+    
+    ## Train the network
+    
+    for (i in 1:num_iter) {
+        
+        ## Randomly permute the indices
+        
+        inds <- sample(1:dim(x)[2])
+        
+        ## Perform the permutation
+        
+        x <- matrix(x[, inds], nrow = 4)
+        y <- matrix(y[, inds], nrow = 3)
+        
+        ## Create the gradient containers
+        
+        gradient_biases_sum <- list()
+        gradient_weights_sum <- list()
+        
+        for (j in 1:K) {
+            
+            x_pat <<- as.matrix(x[, j], nrow = 4)
+            y_pat <<- as.matrix(y[, j], nrow = 3)
+            
+            if (j == 1) {
+                
+                gradient_weights_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+                gradient_biases_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+                
+            } else {
+                
+                gradient_weights <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+                gradient_biases <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+                
+                for (k in 1:num_layers) {
+                    
+                    gradient_biases_sum[[k]] <- gradient_biases_sum[[k]] + gradient_biases[[k]]
+                    gradient_weights_sum[[k]] <- gradient_weights_sum[[k]] + gradient_weights[[k]]
+                    
+                }
+                
+            }
+            
+        }
+        
+        ## Make the network updates
+        
+        for (l in 1:num_layers) {
+            
+            ## Update the weights
+            
+            weights[[l]] <- weights[[l]] - ler_rate[l] * gradient_weights_sum[[l]] + alpha[l] * weights_prev_delta[[l]]
+            biases[[l]] <- biases[[l]] - ler_rate[l] * gradient_biases_sum[[l]] + alpha[l] * biases_prev_delta[[l]]
+            
+            ## Store the changes
+            
+            weights_prev_delta[[l]] <- -ler_rate[l] * gradient_weights_sum[[l]]
+            biases_prev_delta[[l]] <- -ler_rate[l] * gradient_biases_sum[[l]]
+            
+        }
+        
+        ## Record the error values for each training step
+        
+        if (i %% 100 == 0) {
+            
+            if (exists("iter")) {
+                iter <- iter + 1
+            } else {
+                iter <- 1
+            }
+            
+            ler_step[length(ler_step) + 1] <- i
+            
+            ## Perform the forward pass on the training data
+            
+            y_train <- forward_pass(num_layers, weights, biases, x, trans_func)[[num_layers]]
+            
+            y_max_train <- max(y_train)
+            
+            ## Perform the forward pass on the training data
+            
+            y_test_out <- forward_pass(num_layers, weights, biases, x_test, trans_func)[[num_layers]]
+            
+            y_max_test <- max(y_test_out)
+            
+            ## Calculate the errors
+            
+            errors_train[iter] <- sum(sum(abs(y_max_train - y)))
+            errors_test[iter] <- sum(sum(abs(y_max_test - y_test)))
+            
+            if (errors_train[iter] < 6) {
+                
+                ## Return the necesssary network information
+                
+                return(list(weights, biases, ler_step, errors_train, errors_test))
+                
+            }
+            
+        }
+        
+    }
+    
+    ## Return the necesssary network information
+    
+    return(list(weights, biases, ler_step, errors_train, errors_test))
+    
+}
+
+
+## Load in the necessary functions
+
+
+
+## Define the back propogation learning function
+
+
+bp_learn <- function(num_iter, ler_rate, K, alpha, trans_func, der_trans_func, num_outputs, num_layers, x, y, tol, x_test, y_test) {
+    
+    ## Set the sixe of the inputs
+    
+    data_size <- length(x)
+    
+    ## Container for the errors and iteration number
+    
+    errors_train <- numeric()
+    errors_test <- numeric()
+    ler_step <- numeric()
+    output_diffs_train <- numeric()
+    output_diffs_test <- numeric()
+    
+    ## Containers for the weights and biases
+    
+    weights <- list()
+    biases <- list()
+    
+    ## Container for previous weight updates
+    
+    weights_prev_delta <- list()
+    biases_prev_delta <- list()
+    
+    ## Create the weights and biases and init the previous deltas
+    
+    for (i in 1:num_layers) {
+        
+        ## Create the weights
+        
+        weights[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                     min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = num_outputs[i])
+        biases[[i]] <- matrix(runif(num_outputs[i] * num_outputs[i + 1],
+                                    min = -0.1, max = 0.1), nrow = num_outputs[i + 1], ncol = 1)
+        
+        ## Initialize the previous deltas
+        
+        weights_prev_delta[[i]] <- matrix(0, nrow = num_outputs[i + 1], ncol = num_outputs[i])
+        biases_prev_delta[[i]] <- matrix(0, nrow = num_outputs[i + 1], ncol = 1)
+        
+    }
+    
+    ## Train the network
+    
+    for (i in 1:num_iter) {
+        
+        ## Randomly permute the indices
+        
+        inds <- sample(1:length(x))
+        
+        ## Perform the permutation
+        
+        x <- x[inds]
+        y <- y[inds]
+        
+        ## Create the gradient containers
+        
+        gradient_biases_sum <- list()
+        gradient_weights_sum <- list()
+        
+        for (j in 1:K) {
+            
+            x_pat <<- as.matrix(x[j])
+            y_pat <<- as.matrix(y[j])
+            
+            if (j == 1) {
+                
+                gradient_weights_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+                gradient_biases_sum <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+                
+            } else {
+                
+                gradient_weights <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[1]]
+                gradient_biases <- back_pass(num_layers, weights, biases, x_pat, y_pat, trans_func, der_trans_func)[[2]]
+                
+                for (k in 1:num_layers) {
+                    
+                    gradient_biases_sum[[k]] <- gradient_biases_sum[[k]] + gradient_biases[[k]]
+                    gradient_weights_sum[[k]] <- gradient_weights_sum[[k]] + gradient_weights[[k]]
+                    
+                }
+                
+            }
+            
+        }
+        
+        ## Make the network updates
+        
+        for (l in 1:num_layers) {
+            
+            ## Update the weights
+            
+            weights[[l]] <- weights[[l]] - ler_rate[l] * gradient_weights_sum[[l]] + alpha[l] * weights_prev_delta[[l]]
+            biases[[l]] <- biases[[l]] - ler_rate[l] * gradient_biases_sum[[l]] + alpha[l] * biases_prev_delta[[l]]
+            
+            ## Store the changes
+            
+            weights_prev_delta[[l]] <- -ler_rate[l] * gradient_weights_sum[[l]]
+            biases_prev_delta[[l]] <- -ler_rate[l] * gradient_biases_sum[[l]]
+            
+        }
+        
+        ## Record the error values for each training step
+        
+        if (i %% 100 == 0) {
+            
+            if (exists("iter")) {
+                iter <- iter + 1
+            } else {
+                iter <- 1
+            }
+            
+            ler_step[length(ler_step) + 1] <- i
+            
+            
+            
+            err_train <- rms_error_batch(D = t(y),
+                                         y = forward_pass(num_layers, weights, biases, matrix(x, nrow = 1), trans_func)[[num_layers]])
+            errors_train[length(errors_train) + 1] <- err_train
+            
+            err_test <- rms_error_batch(D = t(y_test),
+                                        y = forward_pass(num_layers, weights, biases, matrix(x_test, nrow = 1), trans_func)[[num_layers]])
+            errors_test[length(errors_test) + 1] <- err_test
+            
+            
+            
+            y_expected_train <- y_pat
+            y_actual_train <- forward_pass(num_layers, weights, biases, x_pat, trans_func)[[num_layers]]
+            
+            rand_ind <- sample(x = 1:length(x_test), size = 1)
+            
+            y_expected_test <- y_test[rand_ind]
+            y_actual_test <- forward_pass(num_layers, weights, biases, matrix(x_test[rand_ind], nrow = 1), trans_func)[[num_layers]]
+            
+            output_diffs_train[length(output_diffs_train) + 1] <- y_expected_train - y_actual_train
+            output_diffs_test[length(output_diffs_test) + 1] <- y_expected_test - y_actual_test
+            
+            
+            
+            y_output <- forward_pass(num_layers, weights, biases, matrix(x, nrow = 1), trans_func)[[num_layers]]
+            
+            
+            
+            if (errors_train[iter] < tol) {
+                
+                ## Return the necesssary network information
+                
+                return(list(weights, biases, ler_step, errors_train, errors_test, output_diffs_train, output_diffs_test, y_output))
+                
+            }
+            
+        }
+        
+    }
+    
+    ## Return the necesssary network information
+    
+    return(list(weights, biases, ler_step, errors_train, errors_test, output_diffs_train, output_diffs_test, y_output))
+    
+}
